@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi Lampu Lalu Lintas Berbasis PLC</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Efek Cahaya Lampu Lalu Lintas */
+        .lamp-red-on {
+            background-color: #ef4444;
+            box-shadow: 0 0 15px #ef4444, 0 0 30px #dc2626;
+        }
+        .lamp-yellow-on {
+            background-color: #eab308;
+            box-shadow: 0 0 15px #eab308, 0 0 30px #ca8a04;
+        }
+        .lamp-green-on {
+            background-color: #22c55e;
+            box-shadow: 0 0 15px #22c55e, 0 0 30px #16a34a;
+        }
+        .lamp-off {
+            background-color: #1e293b;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.6);
+        }
+
+        /* Marka Jalan */
+        .road-dashed-v {
+            background-image: linear-gradient(to bottom, #94a3b8 50%, transparent 50%);
+            background-size: 4px 30px;
+            background-repeat: repeat-y;
+        }
+        .road-dashed-h {
+            background-image: linear-gradient(to right, #94a3b8 50%, transparent 50%);
+            background-size: 30px 4px;
+            background-repeat: repeat-x;
+        }
+
+        /* Zebra Cross */
+        .zebra-v {
+            background-image: repeating-linear-gradient(
+                to right,
+                #e2e8f0 0px,
+                #e2e8f0 10px,
+                transparent 10px,
+                transparent 20px
+            );
+        }
+        .zebra-h {
+            background-image: repeating-linear-gradient(
+                to bottom,
+                #e2e8f0 0px,
+                #e2e8f0 10px,
+                transparent 10px,
+                transparent 20px
+            );
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-4 shadow-md z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white">PLC Traffic Control Simulator</h1>
+                <p class="text-xs text-slate-400">Sistem Sekuensial 4 Arah (Single Green Phase Interlock)</p>
+            </div>
+        </div>
+
+        <!-- Status PLC Badge -->
+        <div class="flex items-center gap-3 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700">
+            <span class="text-xs font-medium text-slate-400">CPU STATUS:</span>
+            <span id="plc-status-badge" class="flex items-center gap-1.5 text-xs font-bold font-mono text-emerald-400">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                RUN
+            </span>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 max-w-[1600px] w-full mx-auto">
+
+        <!-- Kiri: Simulasi Persimpangan Jalan (7 Kolom) -->
+        <section class="lg:col-span-7 bg-slate-900 rounded-2xl border border-slate-800 p-4 flex flex-col shadow-xl">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                    Simulasi Persimpangan 4 Arah
+                </h2>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono" id="active-phase-label">FASE: UTARA HIJAU</span>
+                    <span class="px-2 py-1 rounded bg-blue-950 text-blue-300 border border-blue-800/50 font-mono" id="timer-display">T0: 0.0s / 8.0s</span>
+                </div>
+            </div>
+
+            <!-- Container Arena Jalan Raya -->
+            <div class="relative w-full aspect-square max-w-[600px] mx-auto bg-emerald-950/40 rounded-xl overflow-hidden border-2 border-slate-800 shadow-inner select-none" id="intersection-arena">
+                
+                <!-- Latar Rumput / Taman Sudut -->
+                <div class="absolute inset-0 grid grid-cols-2 grid-rows-2">
+                    <!-- Kiri Atas (Barat Laut) -->
+                    <div class="border-r border-b border-slate-700/30 p-3 flex flex-col justify-between">
+                        <div class="bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700/50 max-w-[140px]">
+                            <span class="text-[10px] font-mono text-slate-400 block">ARAH UTARA (N)</span>
+                            <span id="status-text-N" class="text-xs font-bold text-emerald-400">JALAN (HIJAU)</span>
+                        </div>
+                    </div>
+                    <!-- Kanan Atas (Timur Laut) -->
+                    <div class="border-l border-b border-slate-700/30 p-3 flex flex-col items-end justify-between">
+                        <div class="bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700/50 max-w-[140px] text-right">
+                            <span class="text-[10px] font-mono text-slate-400 block">ARAH TIMUR (E)</span>
+                            <span id="status-text-E" class="text-xs font-bold text-red-400">BERHENTI (MERAH)</span>
+                        </div>
+                    </div>
+                    <!-- Kiri Bawah (Barat Daya) -->
+                    <div class="border-r border-t border-slate-700/30 p-3 flex flex-col justify-end">
+                        <div class="bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700/50 max-w-[140px]">
+                            <span class="text-[10px] font-mono text-slate-400 block">ARAH BARAT (W)</span>
+                            <span id="status-text-W" class="text-xs font-bold text-red-400">BERHENTI (MERAH)</span>
+                        </div>
+                    </div>
+                    <!-- Kanan Bawah (Tenggara) -->
+                    <div class="border-l border-t border-slate-700/30 p-3 flex flex-col items-end justify-end">
+                        <div class="bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700/50 max-w-[140px] text-right">
+                            <span class="text-[10px] font-mono text-slate-400 block">ARAH SELATAN (S)</span>
+                            <span id="status-text-S" class="text-xs font-bold text-red-400">BERHENTI (MERAH)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Jalan Vertikal (Utara - Selatan) -->
+                <div class="absolute top-0 bottom-0 left-[35%] right-[35%] bg-slate-800 border-x-2 border-slate-600">
+                    <!-- Garis Tengah Putus-putus -->
+                    <div class="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-1 road-dashed-v opacity-60"></div>
+                    <!-- Garis Henti Utara -->
+                    <div class="absolute top-[31%] left-0 w-1/2 h-1.5 bg-white"></div>
+                    <!-- Zebra Cross Utara -->
+                    <div class="absolute top-[32%] left-0 right-0 h-4 zebra-v opacity-70"></div>
+                    <!-- Garis Henti Selatan -->
+                    <div class="absolute bottom-[31%] right-0 w-1/2 h-1.5 bg-white"></div>
+                    <!-- Zebra Cross Selatan -->
+                    <div class="absolute bottom-[32%] left-0 right-0 h-4 zebra-v opacity-70"></div>
+                </div>
+
+                <!-- Jalan Horizontal (Barat - Timur) -->
+                <div class="absolute left-0 right-0 top-[35%] bottom-[35%] bg-slate-800 border-y-2 border-slate-600">
+                    <!-- Garis Tengah Putus-putus -->
+                    <div class="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 road-dashed-h opacity-60"></div>
+                    <!-- Garis Henti Barat -->
+                    <div class="absolute left-[31%] bottom-0 h-1/2 w-1.5 bg-white"></div>
+                    <!-- Zebra Cross Barat -->
+                    <div class="absolute left-[32%] top-0 bottom-0 w-4 zebra-h opacity-70"></div>
+                    <!-- Garis Henti Timur -->
+                    <div class="absolute right-[31%] top-0 h-1/2 w-1.5 bg-white"></div>
+                    <!-- Zebra Cross Timur -->
+                    <div class="absolute right-[32%] top-0 bottom-0 w-4 zebra-h opacity-70"></div>
+                </div>
+
+                <!-- Area Tengah Persimpangan (Intersection Box) -->
+                <div class="absolute top-[35%] bottom-[35%] left-[35%] right-[35%] bg-slate-800">
+                    <!-- Marka Kuning Kotak Persimpangan (Yellow Box Junction) -->
+                    <div class="w-full h-full border-2 border-yellow-500/30 flex items-center justify-center">
+                        <div class="w-3/4 h-3/4 border border-yellow-500/20 rotate-45"></div>
+                    </div>
+                </div>
+
+                <!-- Layer Kendaraan (Dirender via JS) -->
+                <div id="vehicles-layer" class="absolute inset-0 pointer-events-none"></div>
+
+                <!-- ================= TIANG LAMPU LALU LINTAS ================= -->
+
+                <!-- 1. Lampu UTARA (Mengatur kendaraan dari Utara ke Selatan - posisi di kiri atas persimpangan) -->
+                <div class="absolute top-[20%] left-[25%] bg-slate-950 p-1.5 rounded-lg border border-slate-700 shadow-xl flex flex-col gap-1.5 z-10">
+                    <span class="text-[9px] font-mono text-center text-slate-400 font-bold">N</span>
+                    <div id="light-N-R" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-N-Y" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-N-G" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                </div>
+
+                <!-- 2. Lampu TIMUR (Mengatur kendaraan dari Timur ke Barat - posisi di kanan atas persimpangan) -->
+                <div class="absolute top-[25%] right-[20%] bg-slate-950 p-1.5 rounded-lg border border-slate-700 shadow-xl flex flex-row gap-1.5 items-center z-10">
+                    <div id="light-E-G" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-E-Y" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-E-R" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <span class="text-[9px] font-mono text-center text-slate-400 font-bold ml-0.5">E</span>
+                </div>
+
+                <!-- 3. Lampu SELATAN (Mengatur kendaraan dari Selatan ke Utara - posisi di kanan bawah persimpangan) -->
+                <div class="absolute bottom-[20%] right-[25%] bg-slate-950 p-1.5 rounded-lg border border-slate-700 shadow-xl flex flex-col gap-1.5 z-10">
+                    <div id="light-S-G" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-S-Y" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-S-R" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <span class="text-[9px] font-mono text-center text-slate-400 font-bold">S</span>
+                </div>
+
+                <!-- 4. Lampu BARAT (Mengatur kendaraan dari Barat ke Timur - posisi di kiri bawah persimpangan) -->
+                <div class="absolute bottom-[25%] left-[20%] bg-slate-950 p-1.5 rounded-lg border border-slate-700 shadow-xl flex flex-row gap-1.5 items-center z-10">
+                    <span class="text-[9px] font-mono text-center text-slate-400 font-bold mr-0.5">W</span>
+                    <div id="light-W-R" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-W-Y" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                    <div id="light-W-G" class="w-3.5 h-3.5 rounded-full lamp-off transition-all duration-150"></div>
+                </div>
+
+            </div>
+
+            <!-- Keterangan Aturan PLC -->
+            <div class="mt-3 bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 flex items-start gap-3 text-xs text-slate-300">
+                <svg class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <div>
+                    <p class="font-semibold text-slate-200">Logika Interlock PLC (1 Arah Hijau):</p>
+                    <p class="text-slate-400 mt-0.5">Sistem menjamin hanya <strong class="text-emerald-400">1 arah</strong> yang menyala Hijau pada satu waktu (Utara &rarr; Timur &rarr; Selatan &rarr; Barat) dengan jeda <span class="text-amber-400 font-mono">All-Red</span> (semua merah) selama 1 detik antar pergantian fase demi keamanan persimpangan.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Kanan: Panel PLC, I/O Monitor & Ladder Logic (5 Kolom) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- Panel Kontrol Operator PLC -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 p-4 shadow-xl">
+                <h2 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Panel Kontrol Operator (HMI)
+                </h2>
+
+                <!-- Tombol Operasi Utama -->
+                <div class="grid grid-cols-3 gap-2 mb-4">
+                    <button id="btn-start" onclick="setPlcMode('AUTO')" class="py-2.5 px-3 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition active:scale-95 flex items-center justify-center gap-1.5">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                        AUTO RUN
+                    </button>
+                    <button id="btn-stop" onclick="setPlcMode('STOP')" class="py-2.5 px-3 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                        <svg class="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>
+                        STOP
+                    </button>
+                    <button id="btn-night" onclick="setPlcMode('NIGHT')" class="py-2.5 px-3 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        FLASH (MALAM)
+                    </button>
+                </div>
+
+                <!-- Kontrol Manual Step & Pengaturan Timer -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-800">
+                    <div>
+                        <label class="text-[11px] font-medium text-slate-400 block mb-1">Durasi Lampu Hijau: <span id="green-time-val" class="text-blue-400 font-mono font-bold">6s</span></label>
+                        <input type="range" id="green-duration" min="3" max="15" value="6" class="w-full accent-blue-500 cursor-pointer" oninput="updateGreenDuration(this.value)">
+                    </div>
+                    <div class="flex flex-col justify-end">
+                        <button onclick="manualNextStep()" class="w-full py-2 px-3 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-medium transition active:scale-95">
+                            Manual Next Fase &rarr;
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PLC Digital Output (DO) Module Monitor -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 p-4 shadow-xl">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                        Modul Output PLC (12-Channel DO)
+                    </h2>
+                    <span class="text-[11px] font-mono text-slate-400">24V DC SINK/SOURCE</span>
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 text-center font-mono text-xs">
+                    <!-- Kolom Utara -->
+                    <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div class="text-[10px] text-slate-400 mb-1.5 font-bold">UTARA (N)</div>
+                        <div class="space-y-1">
+                            <div id="io-Q0-0" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.0</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q0-1" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.1</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q0-2" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.2</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                        </div>
+                    </div>
+                    <!-- Kolom Timur -->
+                    <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div class="text-[10px] text-slate-400 mb-1.5 font-bold">TIMUR (E)</div>
+                        <div class="space-y-1">
+                            <div id="io-Q0-3" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.3</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q0-4" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.4</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q0-5" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.5</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                        </div>
+                    </div>
+                    <!-- Kolom Selatan -->
+                    <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div class="text-[10px] text-slate-400 mb-1.5 font-bold">SELATAN (S)</div>
+                        <div class="space-y-1">
+                            <div id="io-Q0-6" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.6</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q0-7" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q0.7</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q1-0" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q1.0</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                        </div>
+                    </div>
+                    <!-- Kolom Barat -->
+                    <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div class="text-[10px] text-slate-400 mb-1.5 font-bold">BARAT (W)</div>
+                        <div class="space-y-1">
+                            <div id="io-Q1-1" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q1.1</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q1-2" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q1.2</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                            <div id="io-Q1-3" class="py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center"><span>Q1.3</span><span class="w-2 h-2 rounded-full bg-slate-700"></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2 flex justify-between text-[10px] text-slate-500 font-mono px-1">
+                    <span>Baris 1: Merah (R)</span>
+                    <span>Baris 2: Kuning (Y)</span>
+                    <span>Baris 3: Hijau (G)</span>
+                </div>
+            </div>
+
+            <!-- Live Ladder Logic Diagram Monitor -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 p-4 shadow-xl flex-1 flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        Live Ladder Logic (Sekuensial & Interlock)
+                    </h2>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300" id="step-register">MW10 = 0</span>
+                </div>
+
+                <!-- Canvas / SVG Diagram Tangga -->
+                <div class="bg-slate-950 rounded-xl border border-slate-800 p-3 font-mono text-xs overflow-x-auto flex-1 flex flex-col justify-center space-y-3" id="ladder-container">
+                    <!-- Rung 1: Master Run & Timer -->
+                    <div class="border-b border-slate-800/80 pb-2">
+                        <div class="text-[10px] text-slate-500 mb-1">NETWORK 1: MASTER CLOCK & SEQUENCE TIMER (TON)</div>
+                        <div class="flex items-center whitespace-nowrap">
+                            <span class="text-slate-600 font-bold">|---</span>
+                            <span id="lad-run" class="px-1.5 py-0.5 rounded border border-emerald-500 text-emerald-400 bg-emerald-950/50">[ I0.0 RUN ]</span>
+                            <span class="text-emerald-500 font-bold">---</span>
+                            <span id="lad-tmr-rst" class="px-1.5 py-0.5 rounded border border-emerald-500 text-emerald-400 bg-emerald-950/50">[/ T0.DN ]</span>
+                            <span class="text-emerald-500 font-bold">---</span>
+                            <span class="px-2 py-0.5 rounded border border-blue-500 text-blue-300 bg-blue-950/40">[ TON T0 | PT: <span id="lad-pt">6.0s</span> ]</span>
+                            <span class="text-slate-600 font-bold">---|</span>
+                        </div>
+                    </div>
+
+                    <!-- Rung 2: Interlock Hijau -->
+                    <div class="border-b border-slate-800/80 pb-2">
+                        <div class="text-[10px] text-slate-500 mb-1">NETWORK 2: EXCLUSIVE GREEN INTERLOCK (1 ARAH AKTIF)</div>
+                        <div class="space-y-1.5">
+                            <!-- Utara Hijau -->
+                            <div class="flex items-center whitespace-nowrap">
+                                <span class="text-slate-600">|---</span>
+                                <span id="lad-step0" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[ MW10==0 ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-int-N" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[/ E_G ][/ S_G ][/ W_G ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-coil-NG" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">( Q0.2 N_HIJAU )</span>
+                                <span class="text-slate-600">---|</span>
+                            </div>
+                            <!-- Timur Hijau -->
+                            <div class="flex items-center whitespace-nowrap">
+                                <span class="text-slate-600">|---</span>
+                                <span id="lad-step3" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[ MW10==3 ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-int-E" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[/ N_G ][/ S_G ][/ W_G ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-coil-EG" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">( Q0.5 E_HIJAU )</span>
+                                <span class="text-slate-600">---|</span>
+                            </div>
+                            <!-- Selatan Hijau -->
+                            <div class="flex items-center whitespace-nowrap">
+                                <span class="text-slate-600">|---</span>
+                                <span id="lad-step6" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[ MW10==6 ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-int-S" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[/ N_G ][/ E_G ][/ W_G ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-coil-SG" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">( Q1.0 S_HIJAU )</span>
+                                <span class="text-slate-600">---|</span>
+                            </div>
+                            <!-- Barat Hijau -->
+                            <div class="flex items-center whitespace-nowrap">
+                                <span class="text-slate-600">|---</span>
+                                <span id="lad-step9" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[ MW10==9 ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-int-W" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[/ N_G ][/ E_G ][/ S_G ]</span>
+                                <span class="text-slate-600">---</span>
+                                <span id="lad-coil-WG" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">( Q1.3 W_HIJAU )</span>
+                                <span class="text-slate-600">---|</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rung 3: Safety All-Red & Yellow -->
+                    <div>
+                        <div class="text-[10px] text-slate-500 mb-1">NETWORK 3: TRANSITION YELLOW & ALL-RED CLEARANCE</div>
+                        <div class="flex items-center whitespace-nowrap">
+                            <span class="text-slate-600">|---</span>
+                            <span id="lad-trans" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">[ TRANSITION_STEP ]</span>
+                            <span class="text-slate-600">---</span>
+                            <span id="lad-coil-trans" class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-500">( KUNING / ALL-RED SAFETY )</span>
+                            <span class="text-slate-600">---|</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        /**
+         * ============================================================================
+         * PLC TRAFFIC LIGHT CONTROLLER ENGINE
+         * ============================================================================
+         * Menggunakan arsitektur Step Sequencer (MW10) dengan 12 Langkah:
+         * Step 0  : Utara HIJAU  | Timur MERAH  | Selatan MERAH  | Barat MERAH
+         * Step 1  : Utara KUNING | Timur MERAH  | Selatan MERAH  | Barat MERAH
+         * Step 2  : ALL RED (Jeda keamanan 1 detik)
+         * Step 3  : Utara MERAH  | Timur HIJAU  | Selatan MERAH  | Barat MERAH
+         * Step 4  : Utara MERAH  | Timur KUNING | Selatan MERAH  | Barat MERAH
+         * Step 5  : ALL RED (Jeda keamanan 1 detik)
+         * Step 6  : Utara MERAH  | Timur MERAH  | Selatan HIJAU  | Barat MERAH
+         * Step 7  : Utara MERAH  | Timur MERAH  | Selatan KUNING | Barat MERAH
+         * Step 8  : ALL RED (Jeda keamanan 1 detik)
+         * Step 9  : Utara MERAH  | Timur MERAH  | Selatan MERAH  | Barat HIJAU
+         * Step 10 : Utara MERAH  | Timur MERAH  | Selatan MERAH  | Barat KUNING
+         * Step 11 : ALL RED (Jeda keamanan 1 detik)
+         */
+
+        const plcState = {
+            mode: 'AUTO', // 'AUTO', 'STOP', 'NIGHT'
+            step: 0,      // Register MW10 (0 - 11)
+            timer: 0,     // Timer T0 (detik)
+            greenDuration: 6.0,
+            yellowDuration: 2.0,
+            allRedDuration: 1.0,
+            blinkState: false,
+            blinkTimer: 0,
+            // Status Output Digital (Q0.0 - Q1.3)
+            outputs: {
+                N: { R: true,  Y: false, G: false },
+                E: { R: true,  Y: false, G: false },
+                S: { R: true,  Y: false, G: false },
+                W: { R: true,  Y: false, G: false }
+            }
+        };
+
+        // Konfigurasi Langkah PLC
+        function getStepDuration(step) {
+            if (step % 3 === 0) return plcState.greenDuration;  // Fase Hijau
+            if (step % 3 === 1) return plcState.yellowDuration; // Fase Kuning
+            return plcState.allRedDuration;                     // Fase All-Red
+        }
+
+        function getStepDescription(step) {
+            const labels = [
+                "UTARA HIJAU (N-GO)",
+                "UTARA KUNING (N-WARN)",
+                "SEMUA MERAH (INTERLOCK CLEAR)",
+                "TIMUR HIJAU (E-GO)",
+                "TIMUR KUNING (E-WARN)",
+                "SEMUA MERAH (INTERLOCK CLEAR)",
+                "SELATAN HIJAU (S-GO)",
+                "SELATAN KUNING (S-WARN)",
+                "SEMUA MERAH (INTERLOCK CLEAR)",
+                "BARAT HIJAU (W-GO)",
+                "BARAT KUNING (W-WARN)",
+                "SEMUA MERAH (INTERLOCK CLEAR)"
+            ];
+            return labels[step] || "IDLE";
+        }
+
+        // Evaluasi Logika Output PLC berdasarkan Mode & Step (MW10)
+        function evaluatePlcLogic() {
+            // Reset semua output ke false terlebih dahulu
+            ['N', 'E', 'S', 'W'].forEach(dir => {
+                plcState.outputs[dir] = { R: false, Y: false, G: false };
+            });
+
+            if (plcState.mode === 'STOP') {
+                // Mode STOP: Semua lampu Merah menyala demi keamanan
+                ['N', 'E', 'S', 'W'].forEach(dir => {
+                    plcState.outputs[dir].R = true;
+                });
+                return;
+            }
+
+            if (plcState.mode === 'NIGHT') {
+                // Mode Malam / Flash: Semua lampu Kuning berkedip
+                ['N', 'E', 'S', 'W'].forEach(dir => {
+                    plcState.outputs[dir].Y = plcState.blinkState;
+                });
+                return;
+            }
+
+            // Mode AUTO: Eksekusi Sequencer MW10 (Hanya 1 Hijau pada satu waktu)
+            switch (plcState.step) {
+                case 0: // Utara Hijau
+                    plcState.outputs.N.G = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 1: // Utara Kuning
+                    plcState.outputs.N.Y = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 3: // Timur Hijau
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.G = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 4: // Timur Kuning
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.Y = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 6: // Selatan Hijau
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.G = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 7: // Selatan Kuning
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.Y = true;
+                    plcState.outputs.W.R = true;
+                    break;
+                case 9: // Barat Hijau
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.G = true;
+                    break;
+                case 10: // Barat Kuning
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.Y = true;
+                    break;
+                default: // Step 2, 5, 8, 11 -> All Red Safety Clearance
+                    plcState.outputs.N.R = true;
+                    plcState.outputs.E.R = true;
+                    plcState.outputs.S.R = true;
+                    plcState.outputs.W.R = true;
+                    break;
+            }
+        }
+
+        // Kontrol HMI
+        function setPlcMode(newMode) {
+            plcState.mode = newMode;
+            plcState.timer = 0;
+
+            // Update visual tombol
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+            const btnNight = document.getElementById('btn-night');
+            const badge = document.getElementById('plc-status-badge');
+
+            btnStart.className = "py-2.5 px-3 rounded-xl font-semibold text-xs transition active:scale-95 flex items-center justify-center gap-1.5 " +
+                (newMode === 'AUTO' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700");
+
+            btnStop.className = "py-2.5 px-3 rounded-xl font-semibold text-xs transition active:scale-95 flex items-center justify-center gap-1.5 " +
+                (newMode === 'STOP' ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700");
+
+            btnNight.className = "py-2.5 px-3 rounded-xl font-semibold text-xs transition active:scale-95 flex items-center justify-center gap-1.5 " +
+                (newMode === 'NIGHT' ? "bg-amber-600 text-white shadow-lg shadow-amber-600/20" : "bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700");
+
+            if (newMode === 'AUTO') {
+                badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span> RUN (AUTO)';
+                badge.className = "flex items-center gap-1.5 text-xs font-bold font-mono text-emerald-400";
+            } else if (newMode === 'STOP') {
+                badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-red-500"></span> STOP (ALL-RED)';
+                badge.className = "flex items-center gap-1.5 text-xs font-bold font-mono text-red-400";
+            } else {
+                badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span> FLASH MODE';
+                badge.className = "flex items-center gap-1.5 text-xs font-bold font-mono text-amber-400";
+            }
+        }
+
+        function updateGreenDuration(val) {
+            plcState.greenDuration = parseFloat(val);
+            document.getElementById('green-time-val').textContent = val + 's';
+        }
+
+        function manualNextStep() {
+            if (plcState.mode !== 'AUTO') setPlcMode('AUTO');
+            plcState.step = (plcState.step + 1) % 12;
+            plcState.timer = 0;
+        }
+
+        /**
+         * ============================================================================
+         * SIMULASI KENDARAAN (ANIMASI LALU LINTAS)
+         * ============================================================================
+         */
+        const vehicles = [];
+        const vehicleColors = ['#38bdf8', '#f472b6', '#a78bfa', '#fb923c', '#facc15', '#e2e8f0', '#34d399'];
+        let spawnTimers = { N: 0, E: 0, S: 0, W: 0 };
+
+        // Koordinat Jalur (Persentase 0 - 100 dari arena)
+        // Jalan Vertikal: 35% - 65% (Tengah 50%). Lajur Kiri (Utara ke Selatan): 42.5%, Lajur Kanan (Selatan ke Utara): 57.5%
+        // Jalan Horizontal: 35% - 65% (Tengah 50%). Lajur Bawah (Barat ke Timur): 57.5%, Lajur Atas (Timur ke Barat): 42.5%
+        const lanes = {
+            N: { x: 42.5, y: -8,  dx: 0,  dy: 1,  stopLine: 28, rot: 180 }, // Dari Atas ke Bawah
+            S: { x: 57.5, y: 108, dx: 0,  dy: -1, stopLine: 72, rot: 0 },   // Dari Bawah ke Atas
+            W: { x: -8,   y: 57.5,dx: 1,  dy: 0,  stopLine: 28, rot: 90 },  // Dari Kiri ke Kanan
+            E: { x: 108,  y: 42.5,dx: -1, dy: 0,  stopLine: 72, rot: 270 }  // Dari Kanan ke Kiri
+        };
+
+        function spawnVehicle(dir) {
+            const lane = lanes[dir];
+            // Cek apakah ada kendaraan terlalu dekat di titik spawn
+            const tooClose = vehicles.some(v => {
+                if (v.dir !== dir) return false;
+                const dist = Math.hypot(v.x - lane.x, v.y - lane.y);
+                return dist < 14;
+            });
+            if (tooClose) return;
+
+            const isTruck = Math.random() > 0.78;
+            vehicles.push({
+                id: Math.random().toString(36).substr(2, 9),
+                dir: dir,
+                x: lane.x,
+                y: lane.y,
+                dx: lane.dx,
+                dy: lane.dy,
+                rot: lane.rot,
+                speed: 0,
+                maxSpeed: isTruck ? 18 : (22 + Math.random() * 5), // persen per detik
+                length: isTruck ? 7.5 : 5.5,
+                color: vehicleColors[Math.floor(Math.random() * vehicleColors.length)],
+                isTruck: isTruck
+            });
+        }
+
+        function updateVehicles(dt) {
+            // Spawn kendaraan secara berkala di tiap arah
+            ['N', 'E', 'S', 'W'].forEach(dir => {
+                spawnTimers[dir] -= dt;
+                if (spawnTimers[dir] <= 0) {
+                    spawnVehicle(dir);
+                    spawnTimers[dir] = 2.2 + Math.random() * 2.5;
+                }
+            });
+
+            // Update pergerakan tiap kendaraan
+            for (let i = vehicles.length - 1; i >= 0; i--) {
+                const v = vehicles[i];
+                const light = plcState.outputs[v.dir];
+                const stopPos = lanes[v.dir].stopLine;
+
+                // Cek jarak ke garis henti (hanya jika belum melewati garis henti)
+                let distToStop = Infinity;
+                let beforeStopLine = false;
+
+                if (v.dir === 'N' && v.y <= stopPos) {
+                    distToStop = stopPos - v.y;
+                    beforeStopLine = true;
+                } else if (v.dir === 'S' && v.y >= stopPos) {
+                    distToStop = v.y - stopPos;
+                    beforeStopLine = true;
+                } else if (v.dir === 'W' && v.x <= stopPos) {
+                    distToStop = stopPos - v.x;
+                    beforeStopLine = true;
+                } else if (v.dir === 'E' && v.x >= stopPos) {
+                    distToStop = v.x - stopPos;
+                    beforeStopLine = true;
+                }
+
+                // Cek jarak ke kendaraan di depannya pada lajur yang sama
+                let distToFrontCar = Infinity;
+                for (let j = 0; j < vehicles.length; j++) {
+                    if (i === j) continue;
+                    const other = vehicles[j];
+                    if (other.dir !== v.dir) continue;
+
+                    let gap = -1;
+                    if (v.dir === 'N' && other.y > v.y) gap = other.y - v.y - (v.length + other.length) / 2;
+                    if (v.dir === 'S' && other.y < v.y) gap = v.y - other.y - (v.length + other.length) / 2;
+                    if (v.dir === 'W' && other.x > v.x) gap = other.x - v.x - (v.length + other.length) / 2;
+                    if (v.dir === 'E' && other.x < v.x) gap = v.x - other.x - (v.length + other.length) / 2;
+
+                    if (gap >= 0 && gap < distToFrontCar) {
+                        distToFrontCar = gap;
+                    }
+                }
+
+                // Tentukan apakah harus berhenti karena lampu Merah / Kuning
+                let mustStopForLight = false;
+                if (beforeStopLine && !light.G) {
+                    // Jika kuning dan sudah sangat dekat garis henti (< 4%), terus melaju agar tidak mendadak rem
+                    if (light.Y && distToStop < 4) {
+                        mustStopForLight = false;
+                    } else if (distToStop < 16) {
+                        mustStopForLight = true;
+                    }
+                }
+
+                // Kalkulasi target kecepatan
+                let targetSpeed = v.maxSpeed;
+                if (mustStopForLight && distToStop < 12) {
+                    targetSpeed = Math.max(0, (distToStop - 1.5) * 2.2);
+                    if (distToStop <= 1.8) targetSpeed = 0;
+                }
+
+                if (distToFrontCar < 10) {
+                    const followSpeed = Math.max(0, (distToFrontCar - 2.5) * 2.5);
+                    targetSpeed = Math.min(targetSpeed, followSpeed);
+                    if (distToFrontCar <= 2.8) targetSpeed = 0;
+                }
+
+                // Akselerasi / Deselerasi halus
+                if (v.speed < targetSpeed) {
+                    v.speed = Math.min(targetSpeed, v.speed + 25 * dt);
+                } else {
+                    v.speed = Math.max(targetSpeed, v.speed - 45 * dt);
+                }
+
+                // Update posisi
+                v.x += v.dx * v.speed * dt;
+                v.y += v.dy * v.speed * dt;
+
+                // Hapus kendaraan yang sudah keluar arena
+                if (v.x < -15 || v.x > 115 || v.y < -15 || v.y > 115) {
+                    vehicles.splice(i, 1);
+                }
+            }
+        }
+
+        function renderVehicles() {
+            const container = document.getElementById('vehicles-layer');
+            container.innerHTML = vehicles.map(v => {
+                const isGreen = plcState.outputs[v.dir].G;
+                const brakeLight = v.speed < 2 ? '<div class="absolute bottom-0 left-0.5 right-0.5 h-0.5 bg-red-500 shadow-[0_0_4px_#ef4444]"></div>' : '';
+                return `
+                    <div style="
+                        left: ${v.x}%;
+                        top: ${v.y}%;
+                        width: 3.8%;
+                        height: ${v.length}%;
+                        background-color: ${v.color};
+                        transform: translate(-50%, -50%) rotate(${v.rot}deg);
+                    " class="absolute rounded-[3px] shadow-md border border-slate-900/60 transition-none flex flex-col justify-between p-[1px]">
+                        <!-- Kaca Depan -->
+                        <div class="w-full h-[28%] bg-slate-900/80 rounded-t-[2px]"></div>
+                        <!-- Lampu Depan -->
+                        <div class="absolute -top-0.5 left-0.5 w-1 h-0.5 bg-yellow-200 rounded-full"></div>
+                        <div class="absolute -top-0.5 right-0.5 w-1 h-0.5 bg-yellow-200 rounded-full"></div>
+                        ${brakeLight}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * ============================================================================
+         * UPDATE TAMPILAN UI (LAMPU, I/O PLC, DAN LADDER DIAGRAM)
+         * ============================================================================
+         */
+        function updateVisuals() {
+            const out = plcState.outputs;
+
+            // 1. Update Lampu Tiang Persimpangan & Label Status Arah
+            ['N', 'E', 'S', 'W'].forEach(dir => {
+                const l = out[dir];
+                document.getElementById(`light-${dir}-R`).className = `w-3.5 h-3.5 rounded-full transition-all duration-150 ${l.R ? 'lamp-red-on' : 'lamp-off'}`;
+                document.getElementById(`light-${dir}-Y`).className = `w-3.5 h-3.5 rounded-full transition-all duration-150 ${l.Y ? 'lamp-yellow-on' : 'lamp-off'}`;
+                document.getElementById(`light-${dir}-G`).className = `w-3.5 h-3.5 rounded-full transition-all duration-150 ${l.G ? 'lamp-green-on' : 'lamp-off'}`;
+
+                const statusEl = document.getElementById(`status-text-${dir}`);
+                if (l.G) {
+                    statusEl.textContent = "JALAN (HIJAU)";
+                    statusEl.className = "text-xs font-bold text-emerald-400";
+                } else if (l.Y) {
+                    statusEl.textContent = "HATI-HATI (KUNING)";
+                    statusEl.className = "text-xs font-bold text-amber-400";
+                } else if (l.R) {
+                    statusEl.textContent = "BERHENTI (MERAH)";
+                    statusEl.className = "text-xs font-bold text-red-400";
+                } else {
+                    statusEl.textContent = "STANDBY";
+                    statusEl.className = "text-xs font-bold text-slate-500";
+                }
+            });
+
+            // 2. Update Info Fase & Timer
+            const currentDur = getStepDuration(plcState.step);
+            if (plcState.mode === 'AUTO') {
+                document.getElementById('active-phase-label').textContent = `FASE: ${getStepDescription(plcState.step)}`;
+                document.getElementById('timer-display').textContent = `T0: ${plcState.timer.toFixed(1)}s / ${currentDur.toFixed(1)}s`;
+            } else if (plcState.mode === 'STOP') {
+                document.getElementById('active-phase-label').textContent = `FASE: EMERGENCY / STOP (ALL-RED)`;
+                document.getElementById('timer-display').textContent = `T0: HALT`;
+            } else {
+                document.getElementById('active-phase-label').textContent = `FASE: CAUTION FLASH (MALAM)`;
+                document.getElementById('timer-display').textContent = `T0: BLINK 1Hz`;
+            }
+
+            // 3. Update Modul Digital Output (Q0.0 - Q1.3)
+            const ioMap = [
+                { id: 'io-Q0-0', active: out.N.R, color: 'red' },
+                { id: 'io-Q0-1', active: out.N.Y, color: 'amber' },
+                { id: 'io-Q0-2', active: out.N.G, color: 'emerald' },
+                { id: 'io-Q0-3', active: out.E.R, color: 'red' },
+                { id: 'io-Q0-4', active: out.E.Y, color: 'amber' },
+                { id: 'io-Q0-5', active: out.E.G, color: 'emerald' },
+                { id: 'io-Q0-6', active: out.S.R, color: 'red' },
+                { id: 'io-Q0-7', active: out.S.Y, color: 'amber' },
+                { id: 'io-Q1-0', active: out.S.G, color: 'emerald' },
+                { id: 'io-Q1-1', active: out.W.R, color: 'red' },
+                { id: 'io-Q1-2', active: out.W.Y, color: 'amber' },
+                { id: 'io-Q1-3', active: out.W.G, color: 'emerald' }
+            ];
+
+            ioMap.forEach(item => {
+                const el = document.getElementById(item.id);
+                const dot = el.querySelector('span:last-child');
+                if (item.active) {
+                    el.className = `py-1 px-1.5 rounded bg-${item.color}-950/80 text-${item.color}-300 border border-${item.color}-500/50 flex justify-between items-center font-bold`;
+                    dot.className = `w-2 h-2 rounded-full bg-${item.color}-400 shadow-[0_0_6px_currentColor]`;
+                } else {
+                    el.className = `py-1 px-1.5 rounded bg-slate-900 text-slate-500 flex justify-between items-center`;
+                    dot.className = `w-2 h-2 rounded-full bg-slate-700`;
+                }
+            });
+
+            // 4. Update Live Ladder Logic Diagram
+            document.getElementById('step-register').textContent = `MW10 = ${plcState.step}`;
+            document.getElementById('lad-pt').textContent = `${currentDur.toFixed(1)}s`;
+
+            const isAuto = plcState.mode === 'AUTO';
+            const ladRun = document.getElementById('lad-run');
+            ladRun.className = isAuto
+                ? "px-1.5 py-0.5 rounded border border-emerald-500 text-emerald-400 bg-emerald-950/50"
+                : "px-1.5 py-0.5 rounded border border-slate-700 text-slate-500";
+
+            // Helper highlight ladder element
+            const setLadActive = (id, active, color = 'emerald') => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = active
+                    ? `px-1.5 py-0.5 rounded border border-${color}-500 text-${color}-300 bg-${color}-950/60 font-bold`
+                    : `px-1.5 py-0.5 rounded border border-slate-700 text-slate-500`;
+            };
+
+            // Rung Hijau Interlock
+            setLadActive('lad-step0', isAuto && plcState.step === 0);
+            setLadActive('lad-int-N', out.N.G);
+            setLadActive('lad-coil-NG', out.N.G);
+
+            setLadActive('lad-step3', isAuto && plcState.step === 3);
+            setLadActive('lad-int-E', out.E.G);
+            setLadActive('lad-coil-EG', out.E.G);
+
+            setLadActive('lad-step6', isAuto && plcState.step === 6);
+            setLadActive('lad-int-S', out.S.G);
+            setLadActive('lad-coil-SG', out.S.G);
+
+            setLadActive('lad-step9', isAuto && plcState.step === 9);
+            setLadActive('lad-int-W', out.W.G);
+            setLadActive('lad-coil-WG', out.W.G);
+
+            // Rung Transisi Kuning / All-Red
+            const isTransition = !out.N.G && !out.E.G && !out.S.G && !out.W.G;
+            setLadActive('lad-trans', isTransition, 'amber');
+            setLadActive('lad-coil-trans', isTransition, 'amber');
+        }
+
+        /**
+         * ============================================================================
+         * MAIN PLC SCAN CYCLE LOOP
+         * ============================================================================
+         */
+        let lastTime = performance.now();
+
+        function plcScanLoop(now) {
+            const dt = Math.min((now - lastTime) / 1000, 0.1); // Delta time dalam detik
+            lastTime = now;
+
+            // 1. Update Timer PLC sesuai mode
+            if (plcState.mode === 'AUTO') {
+                plcState.timer += dt;
+                const targetDuration = getStepDuration(plcState.step);
+                if (plcState.timer >= targetDuration) {
+                    plcState.timer = 0;
+                    plcState.step = (plcState.step + 1) % 12;
+                }
+            } else if (plcState.mode === 'NIGHT') {
+                plcState.blinkTimer += dt;
+                if (plcState.blinkTimer >= 0.5) {
+                    plcState.blinkTimer = 0;
+                    plcState.blinkState = !plcState.blinkState;
+                }
+            }
+
+            // 2. Eksekusi Program Ladder PLC
+            evaluatePlcLogic();
+
+            // 3. Simulasi Pergerakan Kendaraan
+            updateVehicles(dt);
+            renderVehicles();
+
+            // 4. Perbarui Antarmuka HMI & Ladder Monitor
+            updateVisuals();
+
+            requestAnimationFrame(plcScanLoop);
+        }
+
+        // Inisialisasi awal saat halaman dimuat
+        window.onload = function () {
+            // Spawn beberapa kendaraan awal agar langsung terlihat ramai
+            spawnVehicle('N');
+            spawnVehicle('E');
+            spawnVehicle('S');
+            spawnVehicle('W');
+            requestAnimationFrame(plcScanLoop);
+        };
+    </script>
+</body>
+</html>
